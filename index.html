@@ -1,0 +1,931 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>包覆检测报告生成器 V2</title>
+<style>
+:root {
+  --bg: #f0efe8;
+  --card: #fff;
+  --text: #333;
+  --muted: #999;
+  --line1: #1a6b3c;
+  --line1-bg: #e8f5e9;
+  --line2: #1565c0;
+  --line2-bg: #e3f2fd;
+  --fail: #d32f2f;
+  --fail-bg: #ffebee;
+  --chip-off: #e8e4da;
+  --chip-off-text: #999;
+  --chip-w: #f5f5f5;
+  --chip-l: #fafafa;
+  --radius: 10px;
+  --shadow: 0 1px 3px rgba(0,0,0,.06);
+}
+* { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  /* 杜旭水印 — 斜向重复，若隐若现 */
+  background-image:
+    repeating-linear-gradient(
+      25deg,
+      transparent,
+      transparent 60px,
+      rgba(26,107,60,.018) 60px,
+      rgba(26,107,60,.018) 62px
+    );
+  min-height: 100vh;
+  min-height: 100dvh;
+  user-select: none;
+  -webkit-user-select: none;
+  overscroll-behavior: none;
+}
+.app { max-width: 520px; margin:0 auto; padding:8px; padding-bottom: 80px; }
+
+/* 杜旭水印浮字 */
+.watermark-layer {
+  position:fixed; top:0; left:0; width:100%; height:100%;
+  pointer-events:none; z-index:0; overflow:hidden;
+}
+.watermark-text {
+  position:absolute;
+  font-size:min(5vw, 22px); font-weight:900;
+  color:rgba(26,107,60,.06);
+  white-space:nowrap;
+  transform:rotate(-20deg);
+  letter-spacing:.3em;
+}
+/* 杜旭印章 */
+.seal {
+  position:fixed; bottom:12px; right:12px; z-index:20;
+  width:52px; height:52px; border:2.5px solid rgba(200,50,50,.35);
+  border-radius:50%; display:flex; align-items:center; justify-content:center;
+  font-size:11px; font-weight:900; color:rgba(200,50,50,.35);
+  transform:rotate(-15deg); pointer-events:none;
+  letter-spacing:2px; line-height:1.2; text-align:center;
+}
+/* 底部签名 */
+.footer-sig {
+  text-align:center; padding:8px; font-size:.7rem; color:var(--muted);
+  opacity:.5; pointer-events:none;
+}
+.footer-sig .emoji { display:inline-block; animation: wiggle 3s ease-in-out infinite; }
+@keyframes wiggle {
+  0%,100% { transform:rotate(0); }
+  25% { transform:rotate(8deg); }
+  75% { transform:rotate(-8deg); }
+}
+
+/* Top Bar */
+.topbar {
+  display:flex; align-items:center; gap:8px; padding:8px 12px;
+  background:var(--card); border-radius:var(--radius); box-shadow:var(--shadow);
+  margin-bottom:8px; position:sticky; top:8px; z-index:10;
+}
+.topbar h1 { font-size:1rem; font-weight:700; flex:1; white-space:nowrap; }
+.topbar .count-dot {
+  width:8px; height:8px; border-radius:50%; background:#ccc;
+  transition: background .2s;
+}
+.topbar .count-dot.has { background:var(--fail); }
+.btn {
+  padding:8px 14px; border:none; border-radius:20px; font-size:.8rem;
+  font-weight:600; cursor:pointer; white-space:nowrap; transition:all .15s;
+}
+.btn:active { transform:scale(.95); }
+.btn-copy { background:#1a6b3c; color:#fff; }
+.btn-clear { background:#fff; color:var(--fail); border:1px solid var(--fail); }
+
+/* Line Toggle */
+.line-toggle {
+  display:flex; gap:4px; margin-bottom:6px; background:var(--card);
+  border-radius:var(--radius); padding:4px; box-shadow:var(--shadow);
+}
+.line-btn {
+  flex:1; padding:10px; border:none; border-radius:8px; font-size:.9rem;
+  font-weight:700; cursor:pointer; background:transparent; color:var(--muted);
+  transition:all .15s;
+}
+.line-btn.l1.active { background:var(--line1-bg); color:var(--line1); }
+.line-btn.l2.active { background:var(--line2-bg); color:var(--line2); }
+
+/* Station Tabs */
+.station-tabs-wrap {
+  display:flex; align-items:center; gap:4px; margin-bottom:6px;
+}
+.station-tabs {
+  display:flex; gap:4px; overflow-x:auto; scroll-behavior:smooth;
+  flex:1; padding:2px 0; -ms-overflow-style:none; scrollbar-width:none;
+}
+.station-tabs::-webkit-scrollbar { display:none; }
+.station-tab {
+  min-width:44px; height:40px; border-radius:8px; border:none;
+  font-size:.8rem; font-weight:700; cursor:pointer; flex-shrink:0;
+  background:var(--card); color:var(--muted); box-shadow:var(--shadow);
+  transition:all .12s; position:relative;
+}
+.station-tab.active { color:#fff; }
+.station-tab.active.l1 { background:var(--line1); }
+.station-tab.active.l2 { background:var(--line2); }
+.station-tab.has-fail::after {
+  content:''; position:absolute; top:4px; right:4px;
+  width:6px; height:6px; border-radius:50%; background:var(--fail);
+}
+.station-nav { width:32px; height:40px; border-radius:8px; border:none;
+  background:var(--card); cursor:pointer; font-size:1.2rem; color:var(--muted);
+  box-shadow:var(--shadow); flex-shrink:0; display:flex; align-items:center;
+  justify-content:center;
+}
+
+/* Position Cards */
+.positions { display:flex; flex-direction:column; gap:6px; margin-bottom:6px; }
+.pos-card {
+  background:var(--card); border-radius:var(--radius); box-shadow:var(--shadow);
+  overflow:hidden; transition:all .15s;
+}
+.pos-card.has-fail { box-shadow:0 0 0 2px var(--fail), 0 1px 3px rgba(0,0,0,.1); }
+.pos-header {
+  display:flex; align-items:center; gap:8px; padding:8px 12px;
+  font-weight:700; font-size:.85rem; cursor:pointer;
+}
+.pos-dot {
+  width:10px; height:10px; border-radius:50%; flex-shrink:0;
+  background:#ddd; transition:background .2s;
+}
+.pos-card.has-fail .pos-dot { background:var(--fail); }
+.pos-indicator { font-size:.7rem; color:var(--muted); margin-left:auto; }
+
+/* Type Rows */
+.type-rows { padding:0 8px 8px; }
+.type-row {
+  display:flex; align-items:center; gap:6px; margin-top:6px;
+}
+.type-label {
+  font-size:.75rem; font-weight:600; min-width:52px; text-align:center;
+  padding:4px 0; border-radius:4px;
+}
+.type-label.m { background:var(--line1-bg); color:var(--line1); }
+.type-label.n { background:#fff3e0; color:#e65100; }
+.param-chips { display:flex; gap:4px; flex-wrap:wrap; }
+.param-chip {
+  width:38px; height:38px; border-radius:8px; border:1.5px solid #e0dcd0;
+  background:#fafaf8; cursor:pointer; font-size:.72rem; font-weight:700;
+  color:var(--muted); display:flex; align-items:center; justify-content:center;
+  transition:all .1s; position:relative;
+}
+.param-chip:active { transform:scale(.9); }
+.param-chip.on {
+  background:var(--fail-bg); border-color:var(--fail); color:var(--fail);
+}
+.param-chip.on::after {
+  content:'✕'; position:absolute; top:-4px; right:-4px;
+  font-size:8px; color:#fff; background:var(--fail);
+  width:14px; height:14px; border-radius:50%;
+  display:flex; align-items:center; justify-content:center;
+}
+.divider { width:1px; height:24px; background:#e0dcd0; align-self:center; }
+
+/* Copy All Row */
+.quick-row { display:flex; gap:4px; margin-left:58px; margin-top:2px; }
+.quick-chip {
+  padding:2px 6px; border-radius:4px; border:1px solid #e0dcd0;
+  font-size:.6rem; cursor:pointer; background:#fff; color:var(--muted);
+}
+
+/* Stats Bar */
+.stats-bar {
+  display:flex; gap:12px; padding:8px 12px; background:var(--card);
+  border-radius:var(--radius); box-shadow:var(--shadow); margin-bottom:6px;
+  font-size:.75rem; color:var(--muted);
+}
+.stats-bar strong { color:var(--fail); }
+
+/* Message Preview */
+.msg-card {
+  background:var(--card); border-radius:var(--radius); box-shadow:var(--shadow);
+  overflow:hidden;
+}
+.msg-header {
+  display:flex; align-items:center; justify-content:space-between;
+  padding:8px 12px; cursor:pointer; font-size:.8rem; font-weight:600;
+}
+.msg-content {
+  padding:0 12px 12px; font-size:.82rem; line-height:1.7; word-break:break-all;
+  max-height:200px; overflow-y:auto;
+}
+.msg-content:empty::after { content:'点击上方参数芯片标记不合格项，消息自动生成'; color:var(--muted); font-size:.75rem; }
+
+/* Toast */
+.toast {
+  position:fixed; bottom:80px; left:50%; transform:translateX(-50%);
+  background:#333; color:#fff; padding:8px 20px; border-radius:20px;
+  font-size:.8rem; z-index:100; opacity:0; transition:opacity .2s; pointer-events:none;
+}
+.toast.show { opacity:1; }
+
+/* Undo bar */
+.undo-bar {
+  position:fixed; bottom:16px; left:50%; transform:translateX(-50%);
+  background:#333; color:#fff; padding:10px 20px; border-radius:24px;
+  font-size:.82rem; display:flex; align-items:center; gap:12px;
+  z-index:50; opacity:0; pointer-events:none; transition:opacity .2s;
+  box-shadow:0 4px 12px rgba(0,0,0,.3);
+}
+.undo-bar.show { opacity:1; pointer-events:auto; }
+.undo-bar button {
+  background:transparent; border:1px solid rgba(255,255,255,.4);
+  color:#fff; padding:4px 12px; border-radius:12px; font-size:.75rem;
+  cursor:pointer; font-weight:600;
+}
+</style>
+</head>
+<body>
+<!-- 杜旭水印浮层 -->
+<div class="watermark-layer" id="watermarkLayer"></div>
+<!-- 杜旭印章 -->
+<div class="seal">杜<br>旭<br>印</div>
+
+<div class="app">
+
+  <!-- Top Bar -->
+  <div class="topbar">
+    <span class="count-dot" id="countDot"></span>
+    <h1>包覆检测报告</h1>
+    <button class="btn btn-clear" onclick="undoLast()" id="btnUndo" disabled>↩</button>
+    <button class="btn btn-clear" onclick="clearAll()">清空</button>
+    <button class="btn btn-copy" onclick="copyMsg()">📋 复制</button>
+  </div>
+
+  <!-- Line Toggle -->
+  <div class="line-toggle">
+    <button class="line-btn l1 active" id="line1Btn" onclick="switchLine('1')">📟 1号线</button>
+    <button class="line-btn l2" id="line2Btn" onclick="switchLine('2')">📟 2号线</button>
+  </div>
+
+  <!-- Station Navigation -->
+  <div class="station-tabs-wrap">
+    <button class="station-nav" onclick="moveStation(-1)">◀</button>
+    <div class="station-tabs" id="stationTabs"></div>
+    <button class="station-nav" onclick="moveStation(1)">▶</button>
+  </div>
+
+  <!-- Position Cards -->
+  <div class="positions" id="positions"></div>
+
+  <!-- Stats -->
+  <div class="stats-bar" id="statsBar">
+    <span id="statStations">0 个工位</span>
+    <span id="statParams">0 个参数</span>
+  </div>
+
+  <!-- Message -->
+  <div class="msg-card">
+    <div class="msg-header" onclick="toggleMsg()">
+      📋 生成的消息 <span style="font-size:.7rem;color:var(--muted);" id="msgToggle">▲</span>
+    </div>
+    <div class="msg-content" id="msgContent"></div>
+  </div>
+
+</div>
+
+<!-- 杜旭签名 -->
+<div class="footer-sig">
+  <span class="emoji">🦥</span> 杜旭の包覆摸鱼加速器 · 不保证合格率但保证快乐
+</div>
+
+<div class="toast" id="toast"></div>
+<div class="undo-bar" id="undoBar">
+  <span id="undoText"></span>
+  <button onclick="undoLast()">撤销</button>
+  <button onclick="dismissUndo()">✕</button>
+</div>
+
+<script>
+// ==================== DATA MODEL ====================
+// failures[line][stationNum][position][type] = Set of param strings
+// e.g. failures["1"]["1"]["A"]["膜包负"] = Set{"W1","W4"}
+const STATE_KEY = 'bc2_state';
+const LINES = ['1','2'];
+const STATIONS = Array.from({length:12}, (_,i)=>String(i+1));
+const POSITIONS = ['A','B','C'];
+const TYPES = ['膜包负','负包正'];
+const W_PARAMS = ['W1','W2','W3','W4'];
+const L_PARAMS = ['L1','L2','L3','L4'];
+const ALL_PARAMS = [...W_PARAMS, ...L_PARAMS];
+
+let failures = {};     // nested map
+let currentLine = '1';
+let currentStation = '1';
+let lastAction = null; // for undo
+let msgExpanded = true;
+
+function init() {
+  loadState();
+  renderAll();
+  initWatermark();
+  // Swipe detection (only horizontal, avoid scroll conflict)
+  let touchStartX = 0, touchStartY = 0;
+  document.addEventListener('touchstart', e => {
+    touchStartX = e.touches[0].clientX;
+    touchStartY = e.touches[0].clientY;
+  }, {passive:true});
+  document.addEventListener('touchend', e => {
+    const dx = e.changedTouches[0].clientX - touchStartX;
+    const dy = e.changedTouches[0].clientY - touchStartY;
+    // Only horizontal swipe (>2x horizontal than vertical, min 50px)
+    if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 2) {
+      moveStation(dx > 0 ? -1 : 1);
+    }
+  });
+}
+window.addEventListener('DOMContentLoaded', init);
+
+// ==================== STATE ====================
+function getFailures(line, station, pos, type) {
+  try { return failures[line]?.[station]?.[pos]?.[type] || new Set(); }
+  catch(e) { return new Set(); }
+}
+
+function setFailure(line, station, pos, type, param, on) {
+  if (!failures[line]) failures[line] = {};
+  if (!failures[line][station]) failures[line][station] = {};
+  if (!failures[line][station][pos]) failures[line][station][pos] = {};
+
+  if (!failures[line][station][pos][type]) {
+    failures[line][station][pos][type] = new Set();
+  }
+
+  if (on) {
+    failures[line][station][pos][type].add(param);
+    lastAction = { line, station, pos, type, param, op:'add' };
+  } else {
+    failures[line][station][pos][type].delete(param);
+    lastAction = { line, station, pos, type, param, op:'remove' };
+    // Cleanup empty sets
+    if (failures[line][station][pos][type].size === 0) {
+      delete failures[line][station][pos][type];
+    }
+  }
+
+  saveState();
+  updateUI();
+}
+
+function saveState() {
+  // Convert Sets to arrays for JSON
+  const obj = {};
+  for (const l of LINES) {
+    if (!failures[l]) continue;
+    obj[l] = {};
+    for (const s of STATIONS) {
+      if (!failures[l][s]) continue;
+      obj[l][s] = {};
+      for (const p of POSITIONS) {
+        if (!failures[l][s][p]) continue;
+        obj[l][s][p] = {};
+        for (const t of TYPES) {
+          if (failures[l][s][p][t] && failures[l][s][p][t].size > 0) {
+            obj[l][s][p][t] = [...failures[l][s][p][t]];
+          }
+        }
+      }
+    }
+  }
+  try { localStorage.setItem(STATE_KEY, JSON.stringify(obj)); } catch(e) {}
+}
+
+function loadState() {
+  try {
+    const raw = localStorage.getItem(STATE_KEY);
+    if (!raw) { failures = {}; return; }
+    const obj = JSON.parse(raw);
+    failures = {};
+    for (const l of LINES) {
+      if (!obj[l]) continue;
+      failures[l] = {};
+      for (const s of STATIONS) {
+        if (!obj[l][s]) continue;
+        failures[l][s] = {};
+        for (const p of POSITIONS) {
+          if (!obj[l][s][p]) continue;
+          failures[l][s][p] = {};
+          for (const t of TYPES) {
+            if (obj[l][s][p][t] && obj[l][s][p][t].length > 0) {
+              failures[l][s][p][t] = new Set(obj[l][s][p][t]);
+            }
+          }
+        }
+      }
+    }
+  } catch(e) { failures = {}; }
+}
+
+// ==================== RENDER ====================
+function renderAll() {
+  renderStationTabs();
+  renderPositions();
+  updateUI();
+}
+
+function renderStationTabs() {
+  const container = document.getElementById('stationTabs');
+  let html = '';
+  for (const s of STATIONS) {
+    const has = stationHasFailures(currentLine, s);
+    const active = s === currentStation;
+    const cls = ['station-tab'];
+    if (active) cls.push('active', currentLine==='1'?'l1':'l2');
+    if (has) cls.push('has-fail');
+    html += `<button class="${cls.join(' ')}" onclick="switchStation('${s}')">#${s}</button>`;
+  }
+  container.innerHTML = html;
+  // Scroll active into view
+  setTimeout(() => {
+    const activeTab = container.querySelector('.station-tab.active');
+    if (activeTab) activeTab.scrollIntoView({behavior:'smooth', block:'nearest', inline:'center'});
+  }, 50);
+}
+
+function renderPositions() {
+  const container = document.getElementById('positions');
+  let html = '';
+  for (const pos of POSITIONS) {
+    const posHas = positionHasFailures(currentLine, currentStation, pos);
+    const cardCls = posHas ? 'pos-card has-fail' : 'pos-card';
+    html += `<div class="${cardCls}">
+      <div class="pos-header" onclick="togglePosition('${pos}')">
+        <span class="pos-dot"></span>
+        <span>${pos}工位</span>
+        <span class="pos-indicator">${posHas ? '⚠ 不合格' : '✓ 合格'}</span>
+      </div>
+      <div class="type-rows">`;
+    for (const type of TYPES) {
+      const typeCls = type === '膜包负' ? 'm' : 'n';
+      const failuresSet = getFailures(currentLine, currentStation, pos, type);
+      html += `<div class="type-row">
+        <span class="type-label ${typeCls}">${type}</span>
+        <div class="param-chips">`;
+      for (const param of W_PARAMS) {
+        const on = failuresSet.has(param);
+        html += `<button class="param-chip${on?' on':''}" onclick="toggleParam('${pos}','${type}','${param}')">${param}</button>`;
+      }
+      html += `<span class="divider"></span>`;
+      for (const param of L_PARAMS) {
+        const on = failuresSet.has(param);
+        html += `<button class="param-chip${on?' on':''}" onclick="toggleParam('${pos}','${type}','${param}')">${param}</button>`;
+      }
+      html += `</div></div>`;
+    }
+    // Quick buttons
+    html += `<div class="quick-row">
+      <button class="quick-chip" onclick="quickSet('${pos}','膜包负','W')">W全选</button>
+      <button class="quick-chip" onclick="quickSet('${pos}','膜包负','L')">L全选</button>
+      <button class="quick-chip" onclick="quickSet('${pos}','负包正','W')">W全选</button>
+      <button class="quick-chip" onclick="quickSet('${pos}','负包正','L')">L全选</button>
+      <button class="quick-chip" style="color:var(--fail);" onclick="clearPosition('${pos}')">清除此工位</button>
+    </div>`;
+    html += `</div></div>`;
+  }
+  container.innerHTML = html;
+}
+
+// ==================== ACTIONS ====================
+function toggleParam(pos, type, param) {
+  const set = getFailures(currentLine, currentStation, pos, type);
+  const isOn = set.has(param);
+  setFailure(currentLine, currentStation, pos, type, param, !isOn);
+
+  if (!isOn) {
+    showUndo(`${currentLine}-${currentStation}${pos} ${type} ${param} 已标记`);
+  }
+}
+
+function quickSet(pos, type, group) {
+  const params = group === 'W' ? W_PARAMS : L_PARAMS;
+  const set = getFailures(currentLine, currentStation, pos, type);
+  const allOn = params.every(p => set.has(p));
+  const action = allOn ? 'remove' : 'add';
+  for (const p of params) {
+    setFailureSilent(currentLine, currentStation, pos, type, p, !allOn);
+  }
+  // Save as batch undo
+  lastAction = { line:currentLine, station:currentStation, pos, type, params:[...params], op:action, batch:true };
+  if (!allOn) {
+    showUndo(`${currentLine}-${currentStation}${pos} ${type} ${params.join(',')} 已标记`);
+  }
+  saveState();
+  updateUI();
+}
+
+function clearPosition(pos) {
+  const saved = [];
+  for (const type of TYPES) {
+    const set = getFailures(currentLine, currentStation, pos, type);
+    if (set.size > 0) {
+      for (const p of [...set]) {
+        saved.push({type, param:p});
+        setFailureSilent(currentLine, currentStation, pos, type, p, false);
+      }
+    }
+  }
+  if (saved.length > 0) {
+    lastAction = { line:currentLine, station:currentStation, pos, clearItems:saved, op:'clear', batch:true };
+    showUndo(`${currentLine}-${currentStation}${pos} 已清除`);
+    saveState();
+    updateUI();
+  }
+}
+
+function setFailureSilent(line, station, pos, type, param, on) {
+  // Same as setFailure but doesn't update lastAction or call updateUI
+  if (!failures[line]) failures[line] = {};
+  if (!failures[line][station]) failures[line][station] = {};
+  if (!failures[line][station][pos]) failures[line][station][pos] = {};
+  if (!failures[line][station][pos][type]) {
+    failures[line][station][pos][type] = new Set();
+  }
+  if (on) {
+    failures[line][station][pos][type].add(param);
+  } else {
+    failures[line][station][pos][type].delete(param);
+    if (failures[line][station][pos][type].size === 0) {
+      delete failures[line][station][pos][type];
+    }
+  }
+}
+
+function switchLine(line) {
+  currentLine = line;
+  currentStation = STATIONS[0];
+  document.getElementById('line1Btn').className = 'line-btn l1' + (line==='1'?' active':'');
+  document.getElementById('line2Btn').className = 'line-btn l2' + (line==='2'?' active':'');
+  renderAll();
+}
+
+function switchStation(station) {
+  currentStation = station;
+  renderStationTabs();
+  renderPositions();
+}
+
+function moveStation(dir) {
+  const idx = STATIONS.indexOf(currentStation);
+  const newIdx = Math.max(0, Math.min(STATIONS.length-1, idx + dir));
+  if (STATIONS[newIdx] !== currentStation) {
+    switchStation(STATIONS[newIdx]);
+  }
+}
+
+function togglePosition(pos) {
+  // Quick toggle: if position has no failures, do nothing special
+  // Just a visual hint that position card is tappable
+}
+
+// ==================== UI UPDATE ====================
+function updateUI() {
+  // Count dot
+  const totalFailures = countAllFailures();
+  const dot = document.getElementById('countDot');
+  dot.className = 'count-dot' + (totalFailures > 0 ? ' has' : '');
+
+  // Undo button
+  document.getElementById('btnUndo').disabled = !lastAction;
+
+  // Stats
+  const stationSet = new Set();
+  let paramCount = 0;
+  for (const l of LINES) {
+    if (!failures[l]) continue;
+    for (const s of STATIONS) {
+      if (!failures[l][s]) continue;
+      for (const p of POSITIONS) {
+        if (!failures[l][s][p]) continue;
+        let has = false;
+        for (const t of TYPES) {
+          if (failures[l][s][p][t] && failures[l][s][p][t].size > 0) {
+            has = true;
+            paramCount += failures[l][s][p][t].size;
+          }
+        }
+        if (has) stationSet.add(`${l}-${s}${p}`);
+      }
+    }
+  }
+  document.getElementById('statStations').innerHTML = `<strong>${stationSet.size}</strong> 个工位`;
+  document.getElementById('statParams').innerHTML = `<strong>${paramCount}</strong> 个不合格参数`;
+
+  // Message
+  document.getElementById('msgContent').textContent = generateMessage();
+
+  // Re-render tabs for fail dots
+  renderStationTabs();
+  // Re-render positions for current station
+  renderPositions();
+}
+
+function stationHasFailures(line, station) {
+  if (!failures[line] || !failures[line][station]) return false;
+  for (const p of POSITIONS) {
+    if (failures[line][station][p]) {
+      for (const t of TYPES) {
+        if (failures[line][station][p][t] && failures[line][station][p][t].size > 0) return true;
+      }
+    }
+  }
+  return false;
+}
+
+function positionHasFailures(line, station, pos) {
+  if (!failures[line] || !failures[line][station] || !failures[line][station][pos]) return false;
+  for (const t of TYPES) {
+    if (failures[line][station][pos][t] && failures[line][station][pos][t].size > 0) return true;
+  }
+  return false;
+}
+
+function countAllFailures() {
+  let count = 0;
+  for (const l of LINES) {
+    if (!failures[l]) continue;
+    for (const s of STATIONS) {
+      if (!failures[l][s]) continue;
+      for (const p of POSITIONS) {
+        if (!failures[l][s][p]) continue;
+        for (const t of TYPES) {
+          if (failures[l][s][p][t]) count += failures[l][s][p][t].size;
+        }
+      }
+    }
+  }
+  return count;
+}
+
+// ==================== MESSAGE ====================
+function generateMessage() {
+  // Collect all entries sorted: line, station num, position, type
+  const entries = [];
+  for (const l of LINES) {
+    if (!failures[l]) continue;
+    for (const s of STATIONS) {
+      if (!failures[l][s]) continue;
+      for (const p of POSITIONS) {
+        if (!failures[l][s][p]) continue;
+        for (const t of TYPES) {
+          const params = failures[l][s][p][t];
+          if (params && params.size > 0) {
+            entries.push({
+              station: `${l}-${s}${p}`,
+              prefix: `${l}-${s}`,
+              type: t,
+              params: [...params].sort(cmpParam)
+            });
+          }
+        }
+      }
+    }
+  }
+
+  if (entries.length === 0) return '';
+
+  // Group by station (merge both types for same station)
+  const grouped = [];
+  const stationMap = new Map();
+  for (const e of entries) {
+    if (!stationMap.has(e.station)) {
+      const item = { station: e.station, prefix: e.prefix, failures: [] };
+      stationMap.set(e.station, item);
+      grouped.push(item);
+    }
+    stationMap.get(e.station).failures.push({ type: e.type, params: e.params });
+  }
+
+  let msg = '包覆检测：';
+  let lastPrefix = '';
+
+  for (let i = 0; i < grouped.length; i++) {
+    const item = grouped[i];
+
+    // Station label
+    let stationLabel;
+    if (i === 0) {
+      stationLabel = item.station + '工位';
+    } else if (item.prefix === lastPrefix) {
+      stationLabel = item.station.slice(-1) + '工位'; // just the position letter
+    } else {
+      stationLabel = item.station + '工位';
+    }
+
+    // Failure text
+    let failText;
+    if (item.failures.length === 1) {
+      const f = item.failures[0];
+      failText = f.type + f.params.join(',') + '不合格';
+    } else {
+      // Multiple types: first type(s) without 不合格, last with
+      const parts = item.failures.map((f, fi) => {
+        if (fi === item.failures.length - 1) {
+          return f.type + f.params.join(',') + '不合格';
+        }
+        return f.type + f.params.join(',');
+      });
+      failText = parts.join('，');
+    }
+
+    msg += stationLabel + failText;
+    if (i < grouped.length - 1) msg += '，';
+    lastPrefix = item.prefix;
+  }
+
+  return msg;
+}
+
+function cmpParam(a, b) {
+  const o = {W:0, L:1};
+  return (o[a[0]]*100 + parseInt(a[1])) - (o[b[0]]*100 + parseInt(b[1]));
+}
+
+// ==================== COPY ====================
+function copyMsg() {
+  const msg = generateMessage();
+  if (!msg) {
+    toast('杜旭说：先点几个不合格参数再来复制嘛 😅');
+    return;
+  }
+  copyText(msg);
+}
+
+function copyText(text) {
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(text).then(() => toastDu('✅ 已复制！')).catch(() => fallbackCopy(text));
+  } else {
+    fallbackCopy(text);
+  }
+}
+
+function fallbackCopy(text) {
+  const ta = document.createElement('textarea');
+  ta.value = text; ta.style.cssText = 'position:fixed;left:-9999px';
+  document.body.appendChild(ta); ta.select();
+  try { document.execCommand('copy'); toastDu('✅ 已复制！'); }
+  catch(e) { toast('❌ 复制失败，杜旭建议长按手动复制'); }
+  document.body.removeChild(ta);
+}
+
+// ==================== UNDO ====================
+function undoLast() {
+  if (!lastAction) return;
+  const {line, station, pos, type, param, params, op, batch, clearItems} = lastAction;
+
+  if (op === 'clear' && batch && clearItems) {
+    // Undo a clearPosition
+    for (const item of clearItems) {
+      if (!failures[line]) failures[line] = {};
+      if (!failures[line][station]) failures[line][station] = {};
+      if (!failures[line][station][pos]) failures[line][station][pos] = {};
+      if (!failures[line][station][pos][item.type]) failures[line][station][pos][item.type] = new Set();
+      failures[line][station][pos][item.type].add(item.param);
+    }
+  } else if (batch && params) {
+    // Undo a quickSet
+    const reverseOn = op === 'add' ? false : true;
+    if (!failures[line]) failures[line] = {};
+    if (!failures[line][station]) failures[line][station] = {};
+    if (!failures[line][station][pos]) failures[line][station][pos] = {};
+    if (!failures[line][station][pos][type]) failures[line][station][pos][type] = new Set();
+    for (const p of params) {
+      if (reverseOn) {
+        failures[line][station][pos][type].add(p);
+      } else {
+        failures[line][station][pos][type].delete(p);
+      }
+    }
+    if (!reverseOn && failures[line][station][pos][type].size === 0) {
+      delete failures[line][station][pos][type];
+    }
+  } else {
+    // Single param toggle
+    if (op === 'add') {
+      // Was added, now remove
+      if (failures[line]?.[station]?.[pos]?.[type]) {
+        failures[line][station][pos][type].delete(param);
+      }
+    } else {
+      // Was removed, now add back
+      if (!failures[line]) failures[line] = {};
+      if (!failures[line][station]) failures[line][station] = {};
+      if (!failures[line][station][pos]) failures[line][station][pos] = {};
+      if (!failures[line][station][pos][type]) failures[line][station][pos][type] = new Set();
+      failures[line][station][pos][type].add(param);
+    }
+  }
+
+  lastAction = null;
+  saveState();
+  updateUI();
+  dismissUndo();
+
+  // Navigate to the affected station
+  if (currentLine !== line || currentStation !== station) {
+    currentLine = line;
+    currentStation = station;
+    document.getElementById('line1Btn').className = 'line-btn l1' + (line==='1'?' active':'');
+    document.getElementById('line2Btn').className = 'line-btn l2' + (line==='2'?' active':'');
+    renderStationTabs();
+    renderPositions();
+  }
+}
+
+function showUndo(text) {
+  document.getElementById('undoText').textContent = text;
+  document.getElementById('undoBar').classList.add('show');
+  clearTimeout(window._undoTimer);
+  window._undoTimer = setTimeout(dismissUndo, 4000);
+}
+
+function dismissUndo() {
+  document.getElementById('undoBar').classList.remove('show');
+}
+
+// ==================== CLEAR ====================
+function clearAll() {
+  if (countAllFailures() === 0) return;
+  if (!confirm('清空全部不合格记录？')) return;
+  failures = {};
+  lastAction = null;
+  saveState();
+  updateUI();
+  renderPositions();
+  toast('已清空');
+}
+
+// ==================== MESSAGE TOGGLE ====================
+function toggleMsg() {
+  const content = document.getElementById('msgContent');
+  const toggle = document.getElementById('msgToggle');
+  msgExpanded = !msgExpanded;
+  content.style.display = msgExpanded ? '' : 'none';
+  toggle.textContent = msgExpanded ? '▲' : '▼';
+}
+
+// ==================== TOAST ====================
+let toastTimer;
+function toast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 1500);
+}
+
+function toastDu(msg) {
+  // 杜旭特供幽默提示 — 随机加梗
+  const suffixes = [
+    ' 👍杜旭看了都说好',
+    ' ✨杜旭欣慰地笑了',
+    ' 💪杜旭为你点赞',
+    ' 🎯杜旭直呼内行',
+    ' 👌杜旭觉得很稳',
+    ' 🤙杜旭表示认可',
+  ];
+  toast(msg + suffixes[Math.floor(Math.random() * suffixes.length)]);
+}
+
+// ==================== 杜旭水印 ====================
+function initWatermark() {
+  const layer = document.getElementById('watermarkLayer');
+  if (!layer) return;
+
+  // 水印标语库
+  const slogans = [
+    '杜旭监制', '杜旭看了都说好', '品质杜旭', '杜旭出品',
+    '杜旭把关', '包覆小王子·杜旭', '杜旭の领域', '杜旭严选',
+    '此格杜旭已阅', '杜旭护体', '杜旭是天才', '杜旭从不摸鱼',
+  ];
+
+  // 生成随机分布的水印文字
+  const count = 15;
+  let html = '';
+  for (let i = 0; i < count; i++) {
+    const text = slogans[Math.floor(Math.random() * slogans.length)];
+    const top = Math.random() * 92;
+    const left = Math.random() * 85;
+    const rot = (Math.random() - 0.5) * 30;
+    html += `<span class="watermark-text" style="top:${top}%;left:${left}%;transform:rotate(${rot}deg);">${text}</span>`;
+  }
+  layer.innerHTML = html;
+
+  // 每隔一段时间刷新位置（缓慢漂移效果）
+  setInterval(() => {
+    const texts = layer.querySelectorAll('.watermark-text');
+    texts.forEach(el => {
+      const newTop = parseFloat(el.style.top) + (Math.random() - 0.5) * 0.3;
+      el.style.top = Math.min(94, Math.max(0, newTop)) + '%';
+    });
+  }, 8000);
+}
+</script>
+</body>
+</html>
