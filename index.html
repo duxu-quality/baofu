@@ -326,6 +326,7 @@ function init() {
   loadState();
   renderAll();
   initWatermark();
+  logVisit('pageview');
   // Swipe detection (only horizontal, avoid scroll conflict)
   let touchStartX = 0, touchStartY = 0;
   document.addEventListener('touchstart', e => {
@@ -759,7 +760,7 @@ function copyMsg() {
 
 function copyText(text) {
   if (navigator.clipboard) {
-    navigator.clipboard.writeText(text).then(() => toastDu('✅ 已复制！')).catch(() => fallbackCopy(text));
+    navigator.clipboard.writeText(text).then(() => { logVisit('copy'); toastDu('✅ 已复制！'); }).catch(() => fallbackCopy(text));
   } else {
     fallbackCopy(text);
   }
@@ -769,7 +770,7 @@ function fallbackCopy(text) {
   const ta = document.createElement('textarea');
   ta.value = text; ta.style.cssText = 'position:fixed;left:-9999px';
   document.body.appendChild(ta); ta.select();
-  try { document.execCommand('copy'); toastDu('✅ 已复制！'); }
+  try { document.execCommand('copy'); logVisit('copy'); toastDu('✅ 已复制！'); }
   catch(e) { toast('❌ 复制失败，杜旭建议长按手动复制'); }
   document.body.removeChild(ta);
 }
@@ -891,6 +892,27 @@ function toastDu(msg) {
     ' 🤙杜旭表示认可',
   ];
   toast(msg + suffixes[Math.floor(Math.random() * suffixes.length)]);
+}
+
+// ==================== 访问统计 ====================
+const SB_URL = 'https://lneekvfxmwzygustugww.supabase.co';
+const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxuZWVrdmZ4bXd6eWd1c3R1Z3d3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODIxNzE3NTEsImV4cCI6MjA5Nzc0Nzc1MX0._yMal74LIp7IWow62uz8C5sQpZRX_DrnS_PwQ45bRlY';
+
+function logVisit(action) {
+  const device = /Mobi|Android|iPhone/i.test(navigator.userAgent) ? 'mobile' : 'pc';
+  fetch(SB_URL + '/rest/v1/visit_logs', {
+    method: 'POST',
+    headers: {
+      'apikey': SB_KEY,
+      'Authorization': 'Bearer ' + SB_KEY,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ device: device, action: action })
+  }).catch(() => {});
+}
+
+function logCopyAction() {
+  logVisit('copy');
 }
 
 // ==================== 杜旭水印 ====================

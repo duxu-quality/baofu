@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>后台看板 · 包覆检测</title>
+<style>
+:root {
+  --bg: #f0efe8; --card: #fff; --text: #333; --muted: #999;
+  --green: #1a6b3c; --blue: #1565c0; --red: #d32f2f; --radius: 10px;
+  --shadow: 0 1px 3px rgba(0,0,0,.06);
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; background:var(--bg); color:var(--text); }
+.app { max-width: 600px; margin:0 auto; padding:16px; }
+
+/* Lock */
+.lock-box { background:var(--card); border-radius:var(--radius); padding:40px 24px; text-align:center; box-shadow:var(--shadow); margin-top:40px; }
+.lock-box h1 { font-size:1.2rem; margin-bottom:4px; }
+.lock-box p { color:var(--muted); font-size:.8rem; margin-bottom:20px; }
+.lock-box input { padding:12px 16px; font-size:1rem; border:1.5px solid #ddd; border-radius:8px; text-align:center; width:200px; outline:none; }
+.lock-box input:focus { border-color:var(--green); }
+.lock-box button { display:block; margin:12px auto 0; padding:10px 32px; background:var(--green); color:#fff; border:none; border-radius:8px; font-size:.9rem; font-weight:700; cursor:pointer; }
+.lock-err { color:var(--red); font-size:.8rem; margin-top:8px; min-height:20px; }
+
+/* Dashboard */
+.card { background:var(--card); border-radius:var(--radius); padding:16px; box-shadow:var(--shadow); margin-bottom:10px; }
+.card h3 { font-size:.8rem; color:var(--muted); margin-bottom:10px; text-transform:uppercase; letter-spacing:.5px; }
+.stats-row { display:flex; gap:10px; flex-wrap:wrap; }
+.stat-box { flex:1; min-width:100px; background:#fafaf8; border-radius:8px; padding:14px; text-align:center; }
+.stat-num { font-size:2rem; font-weight:900; }
+.stat-num.g { color:var(--green); } .stat-num.b { color:var(--blue); } .stat-num.r { color:var(--red); }
+.stat-label { font-size:.7rem; color:var(--muted); margin-top:2px; }
+
+.bar-row { display:flex; align-items:center; gap:10px; margin:6px 0; }
+.bar-label { font-size:.78rem; min-width:56px; }
+.bar-track { flex:1; height:24px; background:#f0f0eb; border-radius:12px; overflow:hidden; }
+.bar-fill { height:100%; border-radius:12px; transition:width .5s; }
+.bar-fill.g { background:var(--green); } .bar-fill.b { background:var(--blue); }
+.bar-num { font-size:.78rem; font-weight:700; min-width:36px; text-align:right; }
+
+.recent-list { max-height:260px; overflow-y:auto; }
+.recent-item { display:flex; justify-content:space-between; padding:6px 0; border-bottom:1px solid #f0f0eb; font-size:.78rem; }
+.recent-item span { color:var(--muted); }
+
+.btn-row { display:flex; gap:8px; margin-top:8px; }
+.btn { padding:8px 16px; border-radius:8px; border:none; font-size:.8rem; font-weight:600; cursor:pointer; }
+.btn-refresh { background:var(--blue); color:#fff; }
+.btn-logout { background:#fff; color:var(--muted); border:1px solid #ddd; }
+
+.empty { text-align:center; color:var(--muted); padding:30px 0; font-size:1.5rem; }
+</style>
+</head>
+<body>
+<div class="app" id="app"></div>
+
+<script>
+const SB_URL = 'https://lneekvfxmwzygustugww.supabase.co';
+const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxuZWVrdmZ4bXd6eWd1c3R1Z3d3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODIxNzE3NTEsImV4cCI6MjA5Nzc0Nzc1MX0._yMal74LIp7IWow62uz8C5sQpZRX_DrnS_PwQ45bRlY';
+// 密码 SHA-256 哈希，不存明文。原密码：不告诉你 :)
+const ADMIN_HASH = '96cae35ce8a9b0244178bf28e4966c2ce1b8385723a96a6b838858cdd6ca0a1e';
+
+let unlocked = sessionStorage.getItem('admin_unlocked') === 'yes';
+
+async function sha256(str) {
+  const buf = new TextEncoder().encode(str);
+  const hash = await crypto.subtle.digest('SHA-256', buf);
+  return [...new Uint8Array(hash)].map(b => b.toString(16).padStart(2,'0')).join('');
+}
+
+function init() {
+  if (!unlocked) { showLock(); }
+  else { loadDashboard(); }
+}
+window.addEventListener('DOMContentLoaded', init);
+
+function showLock(err) {
+  document.getElementById('app').innerHTML = `
+    <div class="lock-box">
+      <h1>🔐 后台看板</h1>
+      <p>包覆检测报告生成器 · 访问统计</p>
+      <input type="password" id="pwdInput" placeholder="输入密码" onkeydown="if(event.key==='Enter')tryUnlock()">
+      <br><button onclick="tryUnlock()">进入</button>
+      <div class="lock-err">${err||''}</div>
+    </div>`;
+  if (!err) setTimeout(() => { const i=document.getElementById('pwdInput'); if(i)i.focus(); }, 100);
+}
+
+async function tryUnlock() {
+  const pwd = document.getElementById('pwdInput').value;
+  if (await sha256(pwd) === ADMIN_HASH) {
+    unlocked = true;
+    sessionStorage.setItem('admin_unlocked', 'yes');
+    loadDashboard();
+  } else {
+    showLock('密码错误');
+  }
+}
+
+async function loadDashboard() {
+  const app = document.getElementById('app');
+  app.innerHTML = '<div class="empty">⏳ 加载中…</div>';
+  try {
+    const data = await fetchData();
+    renderDashboard(data);
+  } catch(e) {
+    app.innerHTML = '<div class="empty">❌ 加载失败<br><small>'+e.message+'</small></div>';
+  }
+}
+
+async function fetchData() {
+  const url = SB_URL + '/rest/v1/visit_logs?select=*&order=created_at.desc&limit=500';
+  const resp = await fetch(url, {
+    headers: { 'apikey': SB_KEY, 'Authorization': 'Bearer ' + SB_KEY }
+  });
+  if (!resp.ok) throw new Error(resp.status + ' ' + resp.statusText);
+  return resp.json();
+}
+
+function renderDashboard(data) {
+  if (!data || data.length === 0) {
+    document.getElementById('app').innerHTML = `
+      <div class="card"><div class="empty">📭 暂无访问记录<br><span style="font-size:.75rem;color:var(--muted);">等有人用工具后就有数据了</span></div>
+      <div class="btn-row"><button class="btn btn-logout" onclick="doLogout()">退出</button></div></div>`;
+    return;
+  }
+
+  // Calculate stats
+  const now = new Date();
+  const today = now.toISOString().slice(0,10);
+  const totalPv = data.length;
+  const todayData = data.filter(d => d.created_at.startsWith(today));
+  const todayPv = todayData.length;
+  const pageviews = data.filter(d => d.action === 'pageview');
+  const copies = data.filter(d => d.action === 'copy');
+  const mobile = data.filter(d => d.device === 'mobile');
+  const pc = data.filter(d => d.device === 'pc');
+
+  // Unique visitors (approximate by 30min sessions)
+  const sessions = new Set();
+  data.forEach(d => {
+    const t = new Date(d.created_at);
+    const slot = Math.floor(t.getTime() / 1800000);
+    sessions.add(d.device + '-' + slot);
+  });
+
+  // Recent 30
+  const recent = data.slice(0, 30);
+
+  document.getElementById('app').innerHTML = `
+    <div class="card"><h3>📊 概览</h3>
+      <div class="stats-row">
+        <div class="stat-box"><div class="stat-num g">${totalPv}</div><div class="stat-label">总访问量</div></div>
+        <div class="stat-box"><div class="stat-num b">${todayPv}</div><div class="stat-label">今日访问</div></div>
+        <div class="stat-box"><div class="stat-num r">${sessions.size}</div><div class="stat-label">约访客数</div></div>
+      </div>
+    </div>
+
+    <div class="card"><h3>📱 设备类型</h3>
+      <div class="bar-row">
+        <span class="bar-label">📱 手机</span>
+        <div class="bar-track"><div class="bar-fill g" style="width:${pct(mobile.length,totalPv)}%"></div></div>
+        <span class="bar-num">${mobile.length}</span>
+      </div>
+      <div class="bar-row">
+        <span class="bar-label">💻 电脑</span>
+        <div class="bar-track"><div class="bar-fill b" style="width:${pct(pc.length,totalPv)}%"></div></div>
+        <span class="bar-num">${pc.length}</span>
+      </div>
+    </div>
+
+    <div class="card"><h3>🎯 行为</h3>
+      <div class="bar-row">
+        <span class="bar-label">👀 浏览</span>
+        <div class="bar-track"><div class="bar-fill g" style="width:${pct(pageviews.length,totalPv)}%"></div></div>
+        <span class="bar-num">${pageviews.length}</span>
+      </div>
+      <div class="bar-row">
+        <span class="bar-label">📋 复制</span>
+        <div class="bar-track"><div class="bar-fill r" style="width:${pct(copies.length,totalPv)}%"></div></div>
+        <span class="bar-num">${copies.length}</span>
+      </div>
+    </div>
+
+    <div class="card"><h3>🕐 最近 ${recent.length} 条</h3>
+      <div class="recent-list">
+        ${recent.map(d => {
+          const dt = new Date(d.created_at);
+          const time = dt.getFullYear()+'-'+pad(dt.getMonth()+1)+'-'+pad(dt.getDate())+' '+pad(dt.getHours())+':'+pad(dt.getMinutes());
+          const dev = d.device === 'mobile' ? '📱' : '💻';
+          const act = d.action === 'pageview' ? '浏览' : d.action === 'copy' ? '复制' : d.action;
+          return `<div class="recent-item"><span>${time}</span><span>${dev} ${act}</span></div>`;
+        }).join('')}
+      </div>
+    </div>
+
+    <div class="btn-row">
+      <button class="btn btn-refresh" onclick="loadDashboard()">🔄 刷新</button>
+      <button class="btn btn-logout" onclick="doLogout()">退出</button>
+    </div>`;
+}
+
+function pct(n, total) { return total > 0 ? Math.round(n / total * 100) : 0; }
+function pad(n) { return String(n).padStart(2,'0'); }
+
+function doLogout() {
+  unlocked = false;
+  sessionStorage.removeItem('admin_unlocked');
+  showLock();
+}
+</script>
+</body>
+</html>
